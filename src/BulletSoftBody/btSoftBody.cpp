@@ -1044,32 +1044,122 @@ btVector3 btSoftBody::getLinearVelocity()
 	return total_mass == 0 ? total_momentum : total_momentum / total_mass;
 }
 
+// btVector3 btSoftBody::getAngularVelocity(btScalar dt) // If dt is neeed (update .h file too)
 btVector3 btSoftBody::getAngularVelocity()
 {
-	// Some hacks needed here to convert between Bullet vectors/matrices and Eigen
-	// Needed to use Eigen for the .inverse() function -- btMatrix3x3 seems to be specific to rotation matrices
-	btVector3 total_momentum = btVector3(0, 0, 0);
-	btVector3 com = getCenterOfMass();
-	Eigen::Matrix3d total_inertia; 
-	btVector3 v_com = getLinearVelocity(); // Center of mass velocity
-	for (int i = 0; i < m_nodes.size(); ++i)
-	{	
-		btScalar mass = m_nodes[i].m_im == 0 ? 0 : 1.0 / m_nodes[i].m_im;
-		btVector3 r = m_nodes[i].m_x - com; 
-		btVector3 v_rel = m_nodes[i].m_v - v_com; // Velocity of particle wrt COM
-		// Contribution of a particle to the overall inertia tensor
-		// This can be found by expanding out the equation L = sum(ri x mi * vi)
-		Eigen::Matrix3d inertia;
-		inertia << mass * (pow(r[1], 2) + pow(r[2], 2)), -mass * r[0] * r[1], -mass * r[0] * r[2], 
-				-mass * r[1] * r[0], mass * (pow(r[2], 2) + pow(r[0], 2)), -mass * r[1] * r[2], 
-				-mass * r[2] * r[0], -mass * r[2] * r[1], mass * (pow(r[0], 2) + pow(r[1], 2));
-		total_inertia += inertia; 
-		total_momentum += mass * r.cross(v_rel);
+	// 3 attempts: See the if (true) block for the currently implemented version
+
+	// Attempt 3: Define the current and previous frames, use the difference between the frames to define the ang vel. 
+	// This also seems to not really work because the difference between the direction cosines seems to be 0? idk why
+	// This is probably the "worst" numerically out of the three methods
+	if (false){
+		// Get the current and previous centers of mass
+		btScalar totalMass = this->getTotalMass();
+		btVector3 t_cur(0, 0, 0);
+		for (int i = 0; i < m_nodes.size(); i++)
+		{
+			t_cur += (m_nodes[i].m_x * this->getMass(i));
+		}
+		t_cur /= totalMass;
+		btVector3 t_prev(0, 0, 0);
+		for (int i = 0; i < m_nodes.size(); i++)
+		{
+			t_prev += (m_nodes[i].m_q * this->getMass(i));
+		}
+		t_prev /= totalMass;
+
+		// Get the current rotation matrix
+		btMatrix3x3 S;
+		S.setZero();
+		for (int i = 0; i < m_nodes.size(); ++i)
+		{
+			S -= OuterProduct(m_X[i], t_cur - m_nodes[i].m_x);
+		}
+		btVector3 sigma;
+		btMatrix3x3 U, V;
+		singularValueDecomposition(S, U, sigma, V);
+		btMatrix3x3 R_cur = V * U.transpose();
+
+		// Previous rotation matrix:
+		S.setZero();
+		for (int i = 0; i < m_nodes.size(); ++i)
+		{
+			S -= OuterProduct(m_X[i], t_prev - m_nodes[i].m_q);
+		}
+		singularValueDecomposition(S, U, sigma, V);
+		btMatrix3x3 R_prev = V * U.transpose();
+
+		Eigen::Vector3d r1_prev(R_prev[0][0], R_prev[1][0], R_prev[2][0]); 
+		Eigen::Vector3d r2_prev(R_prev[0][1], R_prev[1][1], R_prev[2][1]); 
+		Eigen::Vector3d r3_prev(R_prev[0][2], R_prev[1][2], R_prev[2][2]); 
+		Eigen::Vector3d r1_cur(R_cur[0][0], R_cur[1][0], R_cur[2][0]); 
+		Eigen::Vector3d r2_cur(R_cur[0][1], R_cur[1][1], R_cur[2][1]); 
+		Eigen::Vector3d r3_cur(R_cur[0][2], R_cur[1][2], R_cur[2][2]); 
+		Eigen::Vector3d dphi = (-1/2) * (r1_cur.cross(r1_prev) + r2_cur.cross(r2_prev) + r3_cur.cross(r3_prev));
+		Eigen::Vector3d ang_vel = dphi / dt; 
+		return btVector3(ang_vel[0], ang_vel[1], ang_vel[2]); 
 	}
-	Eigen::Vector3d eigen_momentum(total_momentum[0], total_momentum[1], total_momentum[2]);
-	Eigen::Vector3d ang_vel; 
-	ang_vel = total_inertia.inverse() * eigen_momentum;
-	return btVector3(ang_vel[0], ang_vel[1], ang_vel[2]);
+
+	// Attempt 2: Find an angular velocity for each individual particle and then determine the average over all of the
+	// individual particles' angular velocities (in thwory, if this were a rigid body, they would all be the same)
+	// For some reason this gave a correct value for an angular velocity about the x axis, but the other axes were bad
+	if (false){
+		btVector3 com = getCenterOfMass();
+		btVector3 v_com = getLinearVelocity();
+		int n = m_nodes.size(); 
+		Eigen::Vector3d angvel(0.0, 0.0, 0.0); 
+		for (int i = 0; i < n; ++i)
+		{
+			// Eigen::Vector3d mom(0, 0, 0); 
+			// btScalar inv_mass = m_nodes[i].m_im; 
+			// btScalar mass = inv_mass == 0 ? 0 : 1.0 / inv_mass;
+			btVector3 r_bt = m_nodes[i].m_x - com; 
+			Eigen::Vector3d r(r_bt[0], r_bt[1], r_bt[2]); 
+			btVector3 v_bt = m_nodes[i].m_v - v_com; 
+			Eigen::Vector3d v(v_bt[0], v_bt[1], v_bt[2]); 
+			// Eigen::Matrix3d inertia; 
+			// Eigen::Matrix3d inv_inertia; 
+
+			Eigen::Vector3d rxv = r.cross(v); 
+			double v_norm = sqrt(pow(v[0], 2) + pow(v[1], 2) + pow(v[2], 2)); 
+			double r_norm = sqrt(pow(r[0], 2) + pow(r[1], 2) + pow(r[2], 2)); 
+			double rxv_norm = sqrt(pow(rxv[0], 2) + pow(rxv[1], 2) + pow(rxv[2], 2)); 
+			Eigen::Vector3d w_i = (v_norm / r_norm ) * (rxv / rxv_norm); 
+			
+			angvel += w_i / n; 
+		}
+		return btVector3(angvel[0], angvel[1], angvel[2]); 
+	}
+
+	// Attempt 1: Use the definition of angular momentum tensor to iteratively sum the contributions from each
+	// particle, then use L = I w to find W by inverting the inertia tensor
+	// This seems like it should be the most reliable method, but for some reason is giving incorrect values
+	if (true) {
+		// Some hacks needed here to convert between Bullet vectors/matrices and Eigen
+		// Needed to use Eigen for the .inverse() function -- btMatrix3x3 seems to be specific to rotation matrices
+		btVector3 total_momentum = btVector3(0, 0, 0);
+		btVector3 com = getCenterOfMass();
+		Eigen::Matrix3d total_inertia; 
+		btVector3 v_com = getLinearVelocity(); // Center of mass velocity
+		for (int i = 0; i < m_nodes.size(); ++i)
+		{	
+			btScalar mass = m_nodes[i].m_im == 0 ? 0 : 1.0 / m_nodes[i].m_im;
+			btVector3 r = m_nodes[i].m_x - com; 
+			btVector3 v = m_nodes[i].m_v - v_com; // Velocity of particle wrt COM
+			// Contribution of a particle to the overall inertia tensor
+			// This can be found by expanding out the equation L = sum(ri x mi * vi)
+			Eigen::Matrix3d inertia;
+			inertia << mass * (pow(r[1], 2) + pow(r[2], 2)), -mass * r[0] * r[1], -mass * r[0] * r[2], 
+					-mass * r[1] * r[0], mass * (pow(r[2], 2) + pow(r[0], 2)), -mass * r[1] * r[2], 
+					-mass * r[2] * r[0], -mass * r[2] * r[1], mass * (pow(r[0], 2) + pow(r[1], 2));
+			total_inertia += inertia; 
+			total_momentum += mass * r.cross(v);
+		}
+		Eigen::Vector3d eigen_momentum(total_momentum[0], total_momentum[1], total_momentum[2]);
+		Eigen::Vector3d ang_vel; 
+		ang_vel = total_inertia.inverse() * eigen_momentum;
+		return btVector3(ang_vel[0], ang_vel[1], ang_vel[2]);
+	}
 }
 
 //

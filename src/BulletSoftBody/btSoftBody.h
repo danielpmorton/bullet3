@@ -1002,6 +1002,7 @@ public:
 	/* Get the linear velocity of the center of mass                        */
 	btVector3 getLinearVelocity();
 	/* Get the angular velocity about the center of mass                    */
+	// btVector3 getAngularVelocity(btScalar dt = 1. / 240.f); // Enable if dt is needed
 	btVector3 getAngularVelocity();
 	/* Set the linear velocity of the center of mass                        */
 	void setLinearVelocity(const btVector3& linVel);

@@ -8221,6 +8221,11 @@ bool PhysicsServerCommandProcessor::processRequestActualStateCommand(const struc
 		stateDetails->m_actualStateQdot[2] = sb->getLinearVelocity()[2];
 
 		//base angular velocity (in world space, cartesian)
+		// Re-enable this if the dt parameter is needed in the angular velocity call
+		// btScalar dt = m_data->m_dynamicsWorld->getSolverInfo().m_timeStep; 
+		// stateDetails->m_actualStateQdot[3] = sb->getAngularVelocity(dt)[0];
+		// stateDetails->m_actualStateQdot[4] = sb->getAngularVelocity(dt)[1];
+		// stateDetails->m_actualStateQdot[5] = sb->getAngularVelocity(dt)[2];
 		stateDetails->m_actualStateQdot[3] = sb->getAngularVelocity()[0];
 		stateDetails->m_actualStateQdot[4] = sb->getAngularVelocity()[1];
 		stateDetails->m_actualStateQdot[5] = sb->getAngularVelocity()[2];
